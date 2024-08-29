@@ -1,14 +1,24 @@
-## -- Source scripts and functions --------
-source(here::here(BASE_PATH, "Scripts/00-CodeMap.R"))
-source(here::here(BASE_PATH, "Scripts/00-Functions.R"))
+## -- Setup paths ----------------
+ROOT <- Sys.getenv("ROOT")
+INC <- Sys.getenv("DataInc")
+INC_ROOT <- file.path(ROOT, "01-incidence")
+
+TDATA <- file.path(INC_ROOT, "02-Results", "TableData")
+if (!dir.exists(TDATA)) dir.create(TDATA)
+
+## -- Source script files ----
+source(file.path(ROOT, "00-common", "00-CodeMap.R"))
+source(file.path(ROOT, "00-common", "00-Functions.R"))
 
 ## -- Load packages --------
 Fn$quietly_load(c(
-  "data.table", "plotly", "stringr"
+  "tidytable", "data.table", "stringr",
+  "purrr", "gt", "gtsummary"
 ))
 
 ## -- Get the results ----
-source(here::here(BASE_PATH, "Scripts/02-Results.R"))
+Results <- readRDS(here::here(INC, "Results.rds"))
+# Data <- readRDS(here::here(INC, "Slim.rds"))
 
 ## -- Table Data ----
 TableData <- new.env(parent = Results)
@@ -16,28 +26,210 @@ TableData <- new.env(parent = Results)
 ## -- Case Exclusion data ----
 evalq({
   CaseExclusion <- function() {
-    if (!exists("StepData")) {
-      StepData <- readRDS(here::here(CodeMap$DATA_PATH, "StepData.rds"))
-    }
-    ncases <- map_dbl(StepData, nrow)
-    steps_cases <- data.table(
-      Steps = c(
-        'Total cases',
-        'Cases diagnosized before 1983',
-        'Including only first invasive cases',
-        'In-situ melanoma cases',
-        'Cases that are not histologically verified',
-        'Melanoma not verified',
-        'Cases with status date before diagnosis date',
-        'Cases with basis of death certificate only',
-        'Cases with basis of diagnosis as autopsy',
-        'Final data used in analysis'
-      ),
-      N = c(ncases[!grepl("[:alpha:]$", names(ncases))], last(ncases)))
-    # N = c(50527, 48901, 45929, 45925, 45921, 45905, 45875, 45839, 45812, 45812))
-    steps_cases[, Cases := shift(N) - N]
-    steps_cases[, Steps := paste(.I, Steps, sep = ". ")]
-    setcolorder(steps_cases, c("Steps", "Cases"))  
+    fpath <- file.path(TDATA, glue::glue("ExInclusion.rds"))
+    Fn$load_or_run(
+      rds_path = fpath,
+      expression = {
+        if (!exists("StepData")) {
+          StepData <- readRDS(here::here(INC, "StepData.rds"))
+        }
+        ncases <- map_dbl(StepData, nrow)
+        steps_cases <- data.table(
+          Steps = c(
+            'Total cases',
+            'Cases diagnosized before 1983',
+            'Including only first invasive cases',
+            'In-situ melanoma cases',
+            'Cases that are not histologically verified',
+            'Melanoma not verified',
+            'Cases with status date before diagnosis date',
+            'Cases with basis of death certificate only',
+            'Cases with basis of diagnosis as autopsy',
+            'Final data used in analysis'
+          ),
+          N = c(ncases[!grepl("[:alpha:]$", names(ncases))], last(ncases)))
+        # N = c(50527, 48901, 45929, 45925, 45921, 45905, 45875, 45839, 45812, 45812))
+        steps_cases[, Cases := shift(N) - N]
+        steps_cases[, Steps := paste(.I, Steps, sep = ". ")]
+        setcolorder(steps_cases, c("Steps", "Cases"))
+        saveRDS(steps_cases, str_replace(fpath, "[rR]ds$", "csv"))
+        saveRDS(steps_cases, fpath)
+        return(steps_cases[])
+      }
+    )
+  }
+}, TableData)
+
+## -- Table-1: Charactersitic Table ----
+evalq({
+  SummaryTable <- function(data = Data(), vars = NULL, group = NULL, ...) {
+    fpath <- file.path(TDATA, glue::glue("SummaryTable.rds"))
+    Fn$load_or_run(
+      rds_path = fpath,
+      expression = {
+        attach(Results)
+        on.exit(detach(Results))
+        
+        theme_gtsummary_compact()
+        theme_gtsummary_journal()
+        
+        if (is.null(group)) group <- c("Sex", "YearCat")
+        
+        var_lbls <- c(
+          Age = "Age at diagnosis, median (IQR)",
+          AgeCat = "Age group, n (%)",
+          SurvivalMonth = "Months of survival, median (IQR)",
+          HealthRegion = "Residential region, n (%)",
+          Season = "Season of dagnosis n (%)",
+          AnatomicSite = "Anatomic site, n (%)",
+          MelanomaType = "Histopathological subtype, n (%)",
+          Ulceration = "Ulceration, n (%)",
+          Thickness = "Tumour thickness, median (IQR)",
+          Tstage = "T category, n(%)"
+        )
+        
+        if (is.null(vars)) {
+          vars <- var_lbls
+        } else if (!is.list(vars)) {
+          vars <- `names<-`(var_lbls[vars], vars)
+        }
+        
+        table_data <- data %>% 
+          tidytable::select(c("Sex", "YearCat", names(var_lbls))) %>%
+          tidytable::mutate(
+            YearCat = forcats::fct_relabel(YearCat, stringr::str_replace, "-", "\U2013"),
+            AgeCat = forcats::fct_relabel(AgeCat, stringr::str_replace, "-", "\U2013")
+          )
+        
+        SummaryTable <- Fn$gt_grouped_summary(
+          data = table_data,
+          variables = vars,
+          group = group,
+          ...
+        ) %>% modify_table_body(
+          filter,
+          !(row_type == "missing" & grepl("Tumour thickness", var_label))
+        ) 
+        
+        SummaryTable <- SummaryTable %>%
+          modify_table_body(
+            mutate,
+            stat_label_1 = NA,
+            label = CodeMap$get_Tstage_label(label),
+          )
+        
+        if ("Ulceration" %in% names(vars) & length(group) == 2) {
+          SummaryTable <- SummaryTable %>%
+            modify_table_body(
+              mutate,
+              stat_1_1 = ifelse(variable == "Ulceration", NA, stat_1_1),
+              stat_1_2 = ifelse(variable == "Ulceration", NA, stat_1_2)
+            )
+        } 
+        
+        SummaryTableDF <- as_tibble(SummaryTable)
+        SummaryTable <- SummaryTable %>%
+          as_gt() %>%
+          gt::tab_source_note("IQR: interquartile range") %>% 
+          gt::tab_source_note("% does not include the unspecified cases") %>% 
+          gt::tab_options(table.border.bottom.style = "none")
+        
+        
+        if ("Ulceration" %in% names(vars)) {
+          SummaryTable <- SummaryTable %>%
+            gt::tab_footnote(
+              footnote = "Ulceration reported from the year 2000",
+              locations = gt::cells_body(
+                columns = label, 
+                rows = grepl("Ulceration", label)
+              )
+            )
+        }
+        
+        fwrite(SummaryTableDF, str_replace(fpath, "[rR]ds$", "csv"))
+        saveRDS(SummaryTable, fpath)
+        return(invisible(SummaryTable))
+      }
+    )
+  }
+}, TableData)
+
+## -- Alternative Table-1 ------------------------------
+evalq({
+  AltTable <- function(data = Data(), vars = NULL) {
+    fpath <- file.path(TDATA, glue::glue("AltTable.rds"))
+    Fn$load_or_run(
+      rds_path = fpath,
+      expression = {
+        attach(Results)
+        on.exit(detach(Results))
+        
+        theme_gtsummary_compact()
+        theme_gtsummary_journal()
+        
+        if (is.null(vars)) {
+          vars <- c(
+            Age = "Age at diagnosis, median (IQR)",
+            AgeCat = "Age group, n (%)",
+            SurvivalMonth = "Months of survival, median (IQR)",
+            HealthRegion = "Residential region, n (%)",
+            Season = "Season of dagnosis n (%)",
+            AnatomicSite = "Anatomic site, n (%)",
+            MelanomaType = "Histopathological subtype, n (%)",
+            Ulceration = "Ulceration, n (%)",
+            ClinicalStage = "Clinical stage"
+          )
+        }
+        
+        data <- data %>% 
+          tidytable::mutate(
+            MissingTumour = tidytable::if_else(is.na(Thickness), "Missing", "Not missing")
+          ) %>% 
+          tidytable::select(c("MissingTumour", "YearCat", names(vars))) %>% 
+          tidytable::mutate(
+            YearCat = forcats::fct_relabel(YearCat, stringr::str_replace, "-", "\U2013"),
+            AgeCat = forcats::fct_relabel(AgeCat, stringr::str_replace, "-", "\U2013")
+          )
+        
+        SummaryTable <- Fn$gt_grouped_summary(
+          data = data,
+          variables = vars,
+          group = c("MissingTumour", "YearCat"),
+          overall = TRUE
+        ) %>% modify_table_body(
+          filter,
+          !(row_type == "missing" & var_label == "Tumour thickness, median (IQR)")
+        ) %>% modify_table_body(
+          mutate,
+          stat_label_1 = NA,
+          label = CodeMap$get_Tstage_label(label),
+          stat_1_1 = ifelse(variable == "Ulceration", NA, stat_1_1),
+          stat_1_2 = ifelse(variable == "Ulceration", NA, stat_1_2)
+        ) %>% 
+          modify_table_body(
+            mutate, 
+            across(
+              starts_with("stat"), 
+              ~str_replace(.x, ".*NA.*", NA_character_)
+            )
+          )
+        
+        SummaryTableDF <- gtsummary::as_tibble(SummaryTable)
+        SummaryTable <- SummaryTable %>%
+          as_gt() %>%
+          gt::tab_source_note("IQR: interquartile range") %>%
+          gt::tab_source_note("% does not include the unspecified cases") %>% 
+          gt::tab_footnote(
+            footnote = "Ulceration reported from the year 2000",
+            locations = gt::cells_body(columns = label, rows = 27)
+          ) %>% 
+          gt::tab_options(table.border.bottom.style = "none")
+        
+        fwrite(SummaryTableDF, str_replace(fpath, "[rR]ds$", "csv"))
+        saveRDS(SummaryTable, fpath)
+        return(invisible(SummaryTable))
+      }
+    )
   }
 }, TableData)
 
@@ -45,9 +237,9 @@ evalq({
 evalq({
   CountComparison <- function(group = "YearCat", by = "Tstage", overall_label = "1983-2019") {
     if (!is.null(group)) {
-      fpath <- here::here(CodeMap$DATA_PATH, "PlotData", paste(group, by, "CountComparison.rds", sep = "-"))
+      fpath <- here::here(TDATA, glue::glue("{group}-{by}-CountComparison.rds"))
     } else {
-      fpath <- here::here(CodeMap$DATA_PATH, "PlotData", paste(by, "CountComparison.rds", sep = "-"))
+      fpath <- here::here(TDATA, glue::glue("{by}-CountComparison.rds"))
     }
     count_comparison <- Fn$load_or_run(
       rds_path = fpath,
@@ -55,22 +247,15 @@ evalq({
         dataset <- Results$ImpData
         get_count_comparison <- function(dta) {
           out <- list(
-            `Model A` = Fn$get_count_range(
-              data = copy(dta)[[1]][, c(by) := lapply(.SD, forcats::fct_na_value_to_level, "Unspecified"), .SDcols = by], 
-              var = by
-            ),
-            `Model B` = Fn$get_count_range(
-              data = dta[[1]][!is.na(get(by))], 
-              var = by
-            ),
-            `Model C` = Fn$get_count_range(
-              data = map(dta[-1], ~.x[ID %in% dta[[1]][is.na(get(by)), ID]]),
-              var = by
-            ),
-            `Model D` = Fn$get_count_range(
-              data = dta[-1],
-              var = by
-            )
+            `Model A` = copy(dta[[1]]) %>% 
+              modify_at(by, forcats::fct_na_value_to_level, "Unspecified") %>%  
+              Fn$get_count_range(var = by),
+            `Model B` = dta[[1]][!is.na(get(by))] %>% 
+              Fn$get_count_range(var = by),
+            `Model C` = map(dta[-1], ~.x[PID %in% dta[[1]][is.na(get(by)), PID]]) %>% 
+              Fn$get_count_range(var = by),
+            `Model D` = dta[-1] %>% 
+              Fn$get_count_range(var = by)
           )
           rbindlist(out, idcol = "Imp", fill = TRUE)
         }
@@ -99,10 +284,12 @@ evalq({
           "Imputed dataset"
         )
         names(model_footnote) <- count_comparison[, unique(Imp)]
-        model_footnote <- imap(
-          model_footnote, 
-          ~glue::glue("{.x} (n={count_comparison[get(group) == get(group)[1] & Imp == .y, format(sum(N), big.mark = ',')]})")
-        )
+        if (!is.null(group)) {
+          model_footnote <- imap(
+            model_footnote, 
+            ~glue::glue("{.x} (n={count_comparison[get(group) == get(group)[1] & Imp == .y, format(sum(N), big.mark = ',')]})")
+          )
+        }
         model_footnote <- map_if(
           model_footnote, 
           ~stringr::str_detect(.x, "Imputed"), 
@@ -110,11 +297,10 @@ evalq({
         )
         attr(count_comparison, "footnote") <- model_footnote
         attr(count_comparison, "imp") <- length(dataset[-1])
-        saveRDS(
-          object = count_comparison, 
-          file = here::here(CodeMap$DATA_PATH, "PlotData", paste(group, by, "CountComparison.rds", sep = "-"))
-        )
-        count_comparison
+        
+        fwrite(count_comparison, str_replace(fpath, "[rR]ds$", "csv"))
+        saveRDS(count_comparison, fpath)
+        return(count_comparison)
       }
     )
     
@@ -125,11 +311,12 @@ evalq({
 ## -- Sensetivity Analysis: Hazard Rate Comparison -------------------------
 evalq({
   SurvComparison <- function(group = "YearCat", by = "Tstage", overall_label = "1983-2019") {
-    fpath <- if (!is.null(group)) {
-      here::here(CodeMap$DATA_PATH, "PlotData", paste(by, "SurvComparison.rds", sep = "-"))
+    if (!is.null(group)) {
+      fpath <- here::here(TDATA, glue::glue("{group}-{by}-SurvComparison.rds"))
     } else {
-      here::here(CodeMap$DATA_PATH, "PlotData", paste(group, by, "SurvComparison.rds", sep = "-"))
+      fpath <- here::here(TDATA, glue::glue("{by}-SurvComparison.rds"))
     }
+    
     hr_comparison <- Fn$load_or_run(
       rds_path = fpath,
       expression = {
@@ -141,7 +328,7 @@ evalq({
             `Model A` = copy(dta)[[1]] %>%
               .[, c(by) := lapply(.SD, forcats::fct_na_value_to_level, "Unspecified"), .SDcols = by],
             `Model B` = dta[[1]][!is.na(get(by))],
-            `Model C` = map(dta[-1], ~.x[ID %in% dta[[1]][is.na(get(by)), ID]]),
+            `Model C` = map(dta[-1], ~.x[PID %in% dta[[1]][is.na(get(by)), PID]]),
             `Model D` = dta[-1]
           ) %>% map(Fn$cox_fit, by = by)
           
@@ -227,6 +414,7 @@ evalq({
         attr(hr_comparison, "event") <- event_cases
         attr(hr_comparison, "footnote") <- model_footnote
         attr(hr_comparison, "imp") <- length(dataset[-1])
+        fwrite(hr_comparison, str_replace(fpath, "[rR]ds$", "csv"))
         saveRDS(hr_comparison, fpath)
         hr_comparison
       }
@@ -308,7 +496,7 @@ evalq({
         data %>%
           tidyr::pivot_longer(
             cols = grep("_", names(.)),
-            names_to = c("Period", ".value"),
+            names_to = c("Trend", ".value"),
             names_sep = "_"
           ) %>% 
           tidyr::extract(
@@ -328,18 +516,19 @@ evalq({
       attach(Results)
       on.exit(detach(Results))
       
-      fpath <- here::here(file.path(CodeMap$DATA_PATH, "PlotData", "AAPC-BySex.Rds"))
+      fpath <- here::here(file.path(TDATA, "AAPC-BySex.Rds"))
       AAPC <- Fn$load_or_run(
         rds_path = fpath,
         expression = {
           AAPC <- Func$get_apc("Sex", logY = logY, case_group = c("DiagYear", "Sex", "AgeGroup5", "Tstage", "HealthRegion"))
-          saveRDS(AAPC, file = fpath)
-          AAPC
+          out <- AAPC %>% Func$apc_list(logY = logY)
+          ret <- Func$merge_apc(out)
+          attr(ret, "get_parsed") <- Func$get_parsed
+          fwrite(ret, str_replace(fpath, "[rR]ds$", "csv"))
+          saveRDS(ret, file = fpath)
+          return(ret)
         }
       )
-      
-      out <- AAPC %>% Func$apc_list(logY = logY)
-      return(Func$merge_apc(out))
     }
   }, AAPC)
   
@@ -350,19 +539,20 @@ evalq({
       on.exit(detach(Results))
       
       fpath <- here::here(file.path(
-        CodeMap$DATA_PATH, "PlotData", "AAPC-ByTstage.Rds"
+        TDATA, "AAPC-ByTstage.Rds"
       ))
       AAPC <- Fn$load_or_run(
         rds_path = fpath,
         expression = {
           AAPC <- Func$get_apc("Tstage", logY = logY)
-          saveRDS(AAPC, file = fpath)
-          AAPC
+          out <- AAPC %>% Func$apc_list(logY = logY)
+          ret <- Func$merge_apc(out)
+          attr(ret, "get_parsed") <- Func$get_parsed
+          fwrite(ret, str_replace(fpath, "[rR]ds$", "csv"))
+          saveRDS(ret, file = fpath)
+          return(ret)
         }
       )
-      
-      out <- AAPC %>% Func$apc_list(logY = logY)
-      return(Func$merge_apc(out))
     }
   }, AAPC)
   
@@ -372,17 +562,19 @@ evalq({
       attach(Results)
       on.exit(detach(Results))
       
-      fpath <- here::here(file.path(CodeMap$DATA_PATH, "PlotData", "AAPC-BySexTstage.Rds"))
+      fpath <- here::here(file.path(TDATA, "AAPC-BySexTstage.Rds"))
       AAPC <- Fn$load_or_run(
         rds_path = fpath,
         expression = {
           AAPC <- Func$get_apc(c("Sex", "Tstage"), logY = logY)
-          saveRDS(AAPC, file = fpath)
-          AAPC
+          out <- AAPC %>% Func$apc_list(logY = logY)
+          ret <- Func$merge_apc(out)
+          attr(ret, "get_parsed") <- Func$get_parsed
+          fwrite(ret, str_replace(fpath, "[rR]ds$", "csv"))
+          saveRDS(ret, file = fpath)
+          return(ret)
         }
       )
-      out <- AAPC %>% Func$apc_list(logY = logY)
-      return(Func$merge_apc(out))
     }
   }, AAPC)
   
@@ -392,37 +584,18 @@ evalq({
       attach(Results)
       on.exit(detach(Results))
       
-      fpath <- here::here(file.path(CodeMap$DATA_PATH, "PlotData", "AAPC-BySexTstageSite.Rds"))
+      fpath <- here::here(file.path(TDATA, "AAPC-BySexTstageSite.Rds"))
       AAPC <- Fn$load_or_run(
         rds_path = fpath,
         expression = {
           AAPC <- Func$get_apc(c("Sex", "Tstage", "AnatomicSite"), logY = logY)
-          # AAPC <- AgeAdjRate(ImpCases(), PersonYear, c("Year", "Age", "Sex", "Tstage", "AnatomicSite")) %>%
-          #   .[AnatomicSite != "Other"] %>%
-          #   Segmented(c("aapc", "psi"), logY = logY) %>%
-          #   reduce(merge.data.table) %>%
-          #   .[, c("psi_left", "psi_right") := .(round(psi_left), round(psi_right))]
-          saveRDS(AAPC, file = fpath)
-          AAPC
+          out <- AAPC %>% Func$apc_list(logY = logY)
+          ret <- Func$merge_apc(out)
+          attr(ret, "get_parsed") <- Func$get_parsed
+          fwrite(ret, str_replace(fpath, "[rR]ds$", "csv"))
+          saveRDS(ret, file = fpath)
+          return(ret)
         })
-      out <- AAPC %>% Func$apc_list(logY = logY)
-      return(Func$merge_apc(out))
-      
-      # out <- AAPC[!is.na(Tstage) & !is.na(AnatomicSite)] %>%
-      #   .[, Label := glue::glue_data(.SD, "{round(Estimate, 2)} ({round(Lower, 1)},{round(Upper, 1)})")] %>%
-      #   .[, SegmentLab := fifelse(grepl("^overall", Segment), "Overall", paste("Period", Segment))] %>%
-      #   .[order(SegmentLab)] %>% 
-      #   split(by = "SegmentLab") %>%
-      #   map(dcast.data.table, Imp + Sex + Tstage + AnatomicSite + psi_right ~ ., value.var = "Label") %>%
-      #   map(setcolorder, c(1:4, 6, 5)) %>%
-      #   imap(~ setnames(.x, 6:5, c(glue::glue(.y, "_Year"), glue::glue(.y, ifelse(logY, "_APC", "_Slope")))))
-      # 
-      # idx <- seq_along(out)
-      # out[c(first(idx), last(idx))] <- map(out[c(first(idx), last(idx))], ~.x[, -ncol(.x), with = FALSE])
-      # 
-      # out <- reduce(out, ~ merge.data.table(.x, .y, by = c("Imp", "Sex", "Tstage", "AnatomicSite"), all = TRUE))
-      # attr(out, "parse") <- function() get_parsed(out)
-      # return(out)
     }
   }, AAPC)
   
@@ -432,38 +605,18 @@ evalq({
       attach(Results)
       on.exit(detach(Results))
       
-      fpath <- here::here(file.path(CodeMap$DATA_PATH, "PlotData", "AAPC-BySexTstageType.Rds"))
+      fpath <- here::here(file.path(TDATA, "AAPC-BySexTstageType.Rds"))
       AAPC <- Fn$load_or_run(
         rds_path = fpath,
         expression = {
           AAPC <- Func$get_apc(c("Sex", "Tstage", "MelanomaType"), logY = logY)
-          # AAPC <- AgeAdjRate(ImpCases(), PersonYear, c("Year", "Age", "Sex", "Tstage", "MelanomaType")) %>%
-          #   .[MelanomaType != "Other"] %>%
-          #   Segmented(c("aapc", "psi"), logY = logY) %>%
-          #   reduce(merge.data.table) %>%
-          #   .[, c("psi_left", "psi_right") := .(round(psi_left), round(psi_right))]
-          saveRDS(AAPC, file = fpath)
-          AAPC
+          out <- AAPC %>% Func$apc_list(logY = logY)
+          ret <- Func$merge_apc(out)
+          attr(ret, "get_parsed") <- Func$get_parsed
+          fwrite(ret, str_replace(fpath, "[rR]ds$", "csv"))
+          saveRDS(ret, file = fpath)
+          return(ret)
         })
-      
-      out <- AAPC %>% Func$apc_list(logY = logY)
-      return(Func$merge_apc(out))
-      # out <- AAPC[!is.na(Tstage) & !is.na(MelanomaType)] %>%
-      #   .[, Label := glue::glue_data(.SD, "{round(Estimate, 2)} ({round(Lower, 1)},{round(Upper, 1)})")] %>%
-      #   .[, SegmentLab := fifelse(grepl("^overall", Segment), "Overall", paste("Period", Segment))] %>%
-      #   .[order(SegmentLab)] %>% 
-      #   split(by = "SegmentLab") %>%
-      #   map(dcast.data.table, Imp + Sex + Tstage + MelanomaType + psi_right ~ ., value.var = "Label") %>%
-      #   map(setcolorder, c(1:4, 6, 5)) %>%
-      #   imap(~ setnames(.x, 6:5, c(glue::glue(.y, "_Year"), glue::glue(.y, ifelse(logY, "_APC", "_Slope")))))
-      # 
-      # idx <- seq_along(out)
-      # out[c(first(idx), last(idx))] <- map(out[c(first(idx), last(idx))], ~.x[, -ncol(.x), with = FALSE])
-      # 
-      # out <- reduce(out, ~ merge.data.table(.x, .y, by = c("Imp", "Sex", "Tstage", "MelanomaType"), all = TRUE))
-      # attr(out, "parse") <- function() get_parsed(out)
-      # return(out)
-      
     }
   }, AAPC)
   ## -- By Sex, T-category and Health Region ----
@@ -472,7 +625,7 @@ evalq({
       attach(Results)
       on.exit(detach(Results))
       
-      fpath <- here::here(file.path(CodeMap$DATA_PATH, "PlotData", "AAPC-BySexTstageRegion.Rds"))
+      fpath <- here::here(file.path(TDATA, "AAPC-BySexTstageRegion.Rds"))
       AAPC <- Fn$load_or_run(
         rds_path = fpath,
         expression = {
@@ -481,12 +634,13 @@ evalq({
             logY = logY, 
             case_group = c("DiagYear", "Sex", "AgeGroup5", "Tstage", "HealthRegion")
           )
-          saveRDS(AAPC, file = fpath)
-          AAPC
+          out <- AAPC %>% Func$apc_list(logY = logY)
+          ret <- Func$merge_apc(out)
+          attr(ret, "get_parsed") <- Func$get_parsed
+          fwrite(ret, str_replace(fpath, "[rR]ds$", "csv"))
+          saveRDS(ret, file = fpath)
+          return(ret)
         })
-      
-      out <- AAPC %>% Func$apc_list(logY = logY)
-      return(Func$merge_apc(out))
     }
   }, AAPC)
   ## -- By Sex, T-category and Season ----
@@ -495,7 +649,7 @@ evalq({
       attach(Results)
       on.exit(detach(Results))
       
-      fpath <- here::here(file.path(CodeMap$DATA_PATH, "PlotData", "AAPC-BySexTstageSeason.Rds"))
+      fpath <- here::here(file.path(TDATA, "AAPC-BySexTstageSeason.Rds"))
       AAPC <- Fn$load_or_run(
         rds_path = fpath,
         expression = {
@@ -504,18 +658,34 @@ evalq({
             logY = logY, 
             case_group = c("DiagYear", "Sex", "AgeGroup5", "Tstage", "Season")
           )
-          saveRDS(AAPC, file = fpath)
-          AAPC
+          out <- AAPC %>% Func$apc_list(logY = logY)
+          ret <- Func$merge_apc(out)
+          attr(ret, "get_parsed") <- Func$get_parsed
+          fwrite(ret, str_replace(fpath, "[rR]ds$", "csv"))
+          saveRDS(ret, file = fpath)
+          return(ret)
         })
-      
-      out <- AAPC %>% Func$apc_list(logY = logY)
-      return(Func$merge_apc(out))
     }
   }, AAPC)
   
 }, TableData)
 
-## -- Age-adjusted rate and annual percentage -------------------------
+## -- Count data for table ----------------
 evalq({
-  
+  PropData <- function() {
+    fname <- here::here(TDATA, "Counts.rds")
+    PlotData <- Fn$load_or_run(
+      rds_path = fname,
+      expression = expression({
+        data <- Results$ImpCases() %>% 
+          rbindlist(
+            use.names = TRUE,
+            idcol = "Imp"
+          )
+        
+        fwrite(data, str_replace(fname, "[rR]ds$", "csv"))
+        saveRDS(data, fname) 
+      })
+    )
+  }
 }, TableData)

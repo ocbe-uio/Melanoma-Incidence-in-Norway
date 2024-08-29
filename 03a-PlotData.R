@@ -1,58 +1,31 @@
-## -- Source scripts and functions --------
-source(here::here(BASE_PATH, "Scripts/00-CodeMap.R"))
-source(here::here(BASE_PATH, "Scripts/00-Functions.R"))
+## -- Setup paths ----------------
+ROOT <- Sys.getenv("ROOT")
+INC <- Sys.getenv("DataInc")
+INC_ROOT <- file.path(ROOT, "01-incidence")
+
+PDATA <- file.path(INC_ROOT, "02-Results", "PlotData")
+if (!dir.exists(PDATA)) dir.create(PDATA)
+
+## -- Source script files ----
+source(file.path(ROOT, "00-common", "00-CodeMap.R"))
+source(file.path(ROOT, "00-common", "00-Functions.R"))
 
 ## -- Load packages --------
 Fn$quietly_load(c(
-  "data.table", "plotly", "stringr"
+  "tidytable", "data.table", "purrr", "stringr", 
+  "plotly", "ggplot2"
 ))
 
 ## -- Get the results ----
-if (!exists("Results")) {
-  Results <- readRDS(here::here(CodeMap$DATA_PATH, "Composite", "Results.rds"))
-} else {
-  source(here::here("Scripts/02-Results.R"))
-}
+Results <- readRDS(here::here(INC, "Results.rds"))
 
 ## -- Plots Data ----
 PlotData <- new.env(parent = Results)
-evalq(
-  {
-    Spline <- new.env()
-    AgeAdjusted <- new.env()
-    ModelAPC <- new.env()
-  },
-  PlotData
-)
-
-## -- Proportion data ----
 evalq({
-  Proportion <- function(rate = "incidence", group = NULL) {
-    rate <- match.arg(rate)
-    if (rate == "incidence") {
-      fname <- here::here(file.path(
-          CodeMap$DATA_PATH, 
-          "PlotData", 
-          "Cases.Rds"
-        ))
-      data <- Results$Cases
-    } else {
-      fname <- here::here(file.path(
-          CodeMap$DATA_PATH, 
-          "PlotData", 
-          "Deaths.Rds"
-        ))
-      data <- Results$Deaths
-    }
-    if (is.null(group)) {
-      group <- c("DiagYear", "Tstage")
-    } else {
-      group <- union(group, c("DiagYear", "Tstage"))
-    }
-    Fn$count_by_group(data, group, margin)
-  }
-  
-}, PlotData) #// TODO: This does not work, need to FIX
+  Spline <- new.env()
+  AgeAdjusted <- new.env()
+  ModelAPC <- new.env()
+}, PlotData)
 
 ## -- Spline Plot Data ----
 evalq({
@@ -60,17 +33,9 @@ evalq({
   evalq({
     BySexTstage <- function(..., filter = NULL, logY = TRUE, check = TRUE) {
       if (logY) {
-        fname <- here::here(file.path(
-          CodeMap$DATA_PATH, 
-          "PlotData", 
-          "Spline-logY-BySexTstage.Rds"
-        ))
+        fname <- here::here(PDATA, "Spline-logY-BySexTstage.Rds")
       } else {
-        fname <- here::here(file.path(
-          CodeMap$DATA_PATH, 
-          "PlotData", 
-          "Spline-BySexTstage.Rds"
-        ))
+        fname <- here::here(PDATA, "Spline-BySexTstage.Rds")
       }
       expr <- expression({
           AgeAdjData <- AgeAdjRate(
@@ -80,6 +45,7 @@ evalq({
             margin = "Sex"
           )
           PlotData <- Segmented(AgeAdjData, "spline", logY = logY)
+          fwrite(PlotData, str_replace(fname, "[rR]ds$", "csv"))
           saveRDS(PlotData, fname)
           PlotData
         })
@@ -102,17 +68,9 @@ evalq({
   evalq({
     BySexThinStage <- function(..., filter = NULL, logY = TRUE, check = TRUE) {
       if (logY) {
-        fname <- here::here(file.path(
-          CodeMap$DATA_PATH, 
-          "PlotData", 
-          "Spline-logY-BySexThinStage.Rds"
-        ))
+        fname <- here::here(PDATA, "Spline-logY-BySexThinStage.Rds")
       } else {
-        fname <- here::here(file.path(
-          CodeMap$DATA_PATH, 
-          "PlotData", 
-          "Spline-BySexThinStage.Rds"
-        ))
+        fname <- here::here(PDATA, "Spline-BySexThinStage.Rds")
       }
       expr <- expression({
           
@@ -152,6 +110,7 @@ evalq({
             group = c("DiagYear", "Sex", "Tstage"),
             margin = "Sex"
           )[!is.na(adj.rate)]
+          
           if (!is.null(filter)) {
             AgeAdjDataThin <- AgeAdjDataThin[eval(parse(text = filter))]
           }
@@ -170,6 +129,7 @@ evalq({
           if (!is.null(filter)) {
             PlotData <- PlotData[eval(parse(text = filter))]
           }
+          fwrite(PlotData, str_replace(fname, "[rR]ds$", "csv"))
           saveRDS(PlotData, fname)
           PlotData
         })
@@ -192,17 +152,9 @@ evalq({
   evalq({
     BySexTSubStage <- function(..., filter = NULL, logY = TRUE, check = TRUE) {
       if (logY) {
-        fname <- here::here(file.path(
-          CodeMap$DATA_PATH, 
-          "PlotData", 
-          "Spline-logY-BySexTSubStage.Rds"
-        ))
+        fname <- here::here(PDATA, "Spline-logY-BySexTSubStage.Rds")
       } else {
-        fname <- here::here(file.path(
-          CodeMap$DATA_PATH, 
-          "PlotData", 
-          "Spline-BySexTSubStage.Rds"
-        ))
+        fname <- here::here(PDATA, "Spline-BySexTSubStage.Rds")
       }
       expr <- expression({
           Cases <- lapply(ImpData, function(dta) {
@@ -233,6 +185,7 @@ evalq({
           
           PlotData <- Segmented(AgeAdjData, "spline", logY = logY)
           
+          fwrite(PlotData, str_replace(fname, "[rR]ds$", "csv"))
           saveRDS(PlotData, file = fname)
           PlotData
         })
@@ -255,17 +208,9 @@ evalq({
   evalq({
     BySexTstageSite <- function(..., filter = "Sex != 'Sum'", logY = TRUE, check = TRUE) {
       if (logY) {
-        fname <- here::here(file.path(
-          CodeMap$DATA_PATH, 
-          "PlotData", 
-          "Spline-logY-BySexTstageSite.Rds"
-        ))
+        fname <- here::here(PDATA, "Spline-logY-BySexTstageSite.Rds")
       } else {
-        fname <- here::here(file.path(
-          CodeMap$DATA_PATH, 
-          "PlotData", 
-          "Spline-BySexTstageSite.Rds"
-        ))
+        fname <- here::here(PDATA, "Spline-BySexTstageSite.Rds")
       }
       expr <- expression({
           AgeAdjData <- AgeAdjRate(
@@ -279,6 +224,7 @@ evalq({
             AgeAdjData <- AgeAdjData[eval(parse(text = filter))]
           }
           PlotData <- Segmented(AgeAdjData, "spline", logY = logY)
+          fwrite(PlotData, str_replace(fname, "[rR]ds$", "csv"))
           saveRDS(PlotData, fname)
           PlotData
         })
@@ -299,17 +245,9 @@ evalq({
   evalq({
     BySexTstageType <- function(..., filter = "Sex != 'Sum'", logY = TRUE, check = TRUE) {
       if (logY) {
-        fname <- here::here(file.path(
-          CodeMap$DATA_PATH, 
-          "PlotData", 
-          "Spline-logY-BySexTstageType.Rds"
-        ))
+        fname <- here::here(PDATA, "Spline-logY-BySexTstageType.Rds")
       } else {
-        fname <- here::here(file.path(
-          CodeMap$DATA_PATH, 
-          "PlotData", 
-          "Spline-BySexTstageType.Rds"
-        ))
+        fname <- here::here(PDATA, "Spline-BySexTstageType.Rds")
       }
       expr <- expression({
           AgeAdjData <- AgeAdjRate(
@@ -324,6 +262,7 @@ evalq({
             AgeAdjData <- AgeAdjData[eval(parse(text = filter))]
           }
           PlotData <- Segmented(AgeAdjData, "spline", logY = logY)
+          fwrite(PlotData, str_replace(fname, "[rR]ds$", "csv"))
           saveRDS(PlotData, fname)
           PlotData
         })
@@ -346,17 +285,9 @@ evalq({
   evalq({
     BySexTstageRegion <- function(..., filter = "Sex != 'Sum'", logY = TRUE, check = TRUE) {
       if (logY) {
-        fname <- here::here(file.path(
-          CodeMap$DATA_PATH, 
-          "PlotData", 
-          "Spline-logY-BySexTstageRegion.Rds"
-        ))
+        fname <- here::here(PDATA, "Spline-logY-BySexTstageRegion.Rds")
       } else {
-        fname <- here::here(file.path(
-          CodeMap$DATA_PATH, 
-          "PlotData", 
-          "Spline-BySexTstageRegion.Rds"
-        ))
+        fname <- here::here(PDATA, "Spline-BySexTstageRegion.Rds")
       }
       expr <- expression({
           AgeAdjData <- AgeAdjRate(
@@ -376,6 +307,7 @@ evalq({
             AgeAdjData <- AgeAdjData[eval(parse(text = filter))]
           }
           PlotData <- Segmented(AgeAdjData, "spline", logY = logY)
+          fwrite(PlotData, str_replace(fname, "[rR]ds$", "csv"))
           saveRDS(PlotData, fname)
           PlotData
         })
@@ -398,17 +330,9 @@ evalq({
   evalq({
     BySexTstageSeason <- function(..., filter = "Sex != 'Sum'", logY = TRUE, check = TRUE) {
       if (logY) {
-        fname <- here::here(file.path(
-          CodeMap$DATA_PATH, 
-          "PlotData", 
-          "Spline-logY-BySexTstageSeason.Rds"
-        ))
+        fname <- here::here(PDATA, "Spline-logY-BySexTstageSeason.Rds")
       } else {
-        fname <- here::here(file.path(
-          CodeMap$DATA_PATH, 
-          "PlotData", 
-          "Spline-BySexTstageSeason.Rds"
-        ))
+        fname <- here::here(PDATA, "Spline-BySexTstageSeason.Rds")
       }
       expr <- expression({
           AgeAdjData <- AgeAdjRate(
@@ -416,7 +340,7 @@ evalq({
               case_group = c(
                 "DiagYear", "Sex", "AgeGroup5", 
                 "Tstage", "Season"
-              )),
+             )),
             person_year = PersonYear,
             group = c("DiagYear", "Sex", "Tstage", "Season"),
             margin = "Sex"
@@ -427,6 +351,7 @@ evalq({
             AgeAdjData <- AgeAdjData[eval(parse(text = filter))]
           }
           PlotData <- Segmented(AgeAdjData, "spline", logY = logY)
+          fwrite(PlotData, str_replace(fname, "[rR]ds$", "csv"))
           saveRDS(PlotData, fname)
           PlotData
         })
@@ -445,6 +370,60 @@ evalq({
     }
   }, Spline)
   
+  ## -- By: Sex, TSubStage after 2008 ----------------
+  evalq({
+    BySexTSubStageRecent <- function(..., filter = NULL, logY = TRUE, check = TRUE) {
+      if (logY) {
+        fname <- here::here(PDATA, "Spline-logY-BySexTSubStageRecent.Rds")
+      } else {
+        fname <- here::here(PDATA, "Spline-BySexTSubStageRecent.Rds")
+      }
+      expr <- expression({
+        Cases <- lapply(ImpData, function(dta) {
+          out <- copy(dta) %>% 
+            filter(DiagYear >= 2008) %>% 
+            # mutate(Ulceration = if_else(DiagYear >= 2000 & is.na(Ulceration), "Absent", Ulceration)) %>% 
+            mutate(TSubStage = Fn$get_Tsubstage(
+              Thickness,
+              yes = fifelse(Ulceration == "Present", TRUE, NA),
+              no = fifelse(Ulceration == "Absent", TRUE, NA),
+              missing = fifelse(is.na(Ulceration), TRUE, NA)
+            )) %>% 
+            GetCases(c("DiagYear", "Sex", "AgeGroup5", "TSubStage", "Tstage"))
+          return(out)
+        })
+        
+        AgeAdjData <- AgeAdjRate(
+          cases = Cases,
+          person_year = PersonYear,
+          group = c("DiagYear", "Sex", "TSubStage", "Tstage")
+        )[!is.na(adj.rate)]
+        
+        if (!is.null(filter)) {
+          AgeAdjData <- AgeAdjData[eval(parse(text = filter))]
+        }
+        
+        
+        PlotData <- Segmented(AgeAdjData, "spline", logY = logY)
+        
+        fwrite(PlotData, str_replace(fname, "[rR]ds$", "csv"))
+        saveRDS(PlotData, file = fname)
+        PlotData
+      })
+      if (check) {
+        PlotData <- Fn$load_or_run(
+          rds_path = fname,
+          expression = expr
+        )
+      } else {
+        PlotData <- eval(expr)
+      }
+      if (!is.null(filter)) {
+        PlotData <- PlotData[eval(parse(text = filter))]
+      }
+      return(PlotData)
+    }
+  }, Spline)
 }, PlotData)
 
 ## -- Age Adjusted Plots ------------------------------
@@ -454,24 +433,12 @@ evalq({
     BySexTstage <- function(..., segmented = FALSE, filter = NULL, logY = TRUE, na.rm = TRUE, check = TRUE) {
       if (segmented) {
         if (logY) {
-          fname <- here::here(file.path(
-          CodeMap$DATA_PATH, 
-          "PlotData", 
-          "Segmented-logY-BySexTstage.Rds"
-        ))
+          fname <- here::here(file.path(PDATA, "Segmented-logY-BySexTstage.Rds"))
         } else {
-          fname <- here::here(file.path(
-          CodeMap$DATA_PATH, 
-          "PlotData", 
-          "Segmented-BySexTstage.Rds"
-        ))
+          fname <- here::here(file.path(PDATA, "Segmented-BySexTstage.Rds"))
         }
       } else {
-        fname <- here::here(file.path(
-          CodeMap$DATA_PATH, 
-          "PlotData", 
-          "AgeAdjusted-BySexTstage.Rds"
-        ))
+        fname <- here::here(file.path(PDATA, "AgeAdjusted-BySexTstage.Rds"))
       }
       expr <- expression({
           PlotData <- AgeAdjRate(
@@ -487,6 +454,7 @@ evalq({
             PlotData <- Segmented(PlotData, c("fitted"), logY = logY)
           }
           if (na.rm) PlotData <- na.omit(PlotData)
+          fwrite(PlotData, str_replace(fname, "[rR]ds$", "csv"))
           saveRDS(PlotData, fname)
           PlotData
         })
@@ -510,24 +478,12 @@ evalq({
     BySexThinStage <- function(..., segmented = FALSE, filter = NULL, logY = TRUE, na.rm = TRUE, check = TRUE) {
       if (segmented) {
         if (logY) {
-          fname <- here::here(file.path(
-          CodeMap$DATA_PATH, 
-          "PlotData", 
-          "Segmented-logY-BySexThinStage.Rds"
-        ))
+          fname <- here::here(file.path(PDATA, "Segmented-logY-BySexThinStage.Rds"))
         } else {
-          fname <- here::here(file.path(
-          CodeMap$DATA_PATH, 
-          "PlotData", 
-          "Segmented-BySexThinStage.Rds"
-        ))
+          fname <- here::here(file.path(PDATA, "Segmented-BySexThinStage.Rds"))
         }
       } else {
-        fname <- here::here(file.path(
-          CodeMap$DATA_PATH, 
-          "PlotData", 
-          "AgeAdjusted-BySexThinStage.Rds"
-        ))
+        fname <- here::here(file.path(PDATA, "AgeAdjusted-BySexThinStage.Rds"))
       }
       expr <- expression({
           
@@ -583,9 +539,10 @@ evalq({
           }
           if (na.rm) PlotData <- na.omit(PlotData)
           
+          fwrite(PlotData, str_replace(fname, "[rR]ds$", "csv"))
           saveRDS(PlotData, fname)
           PlotData
-        })
+      })
       if (check) {
         PlotData <- Fn$load_or_run(
           rds_path = fname,
@@ -607,42 +564,31 @@ evalq({
     BySexTstageSite <- function(..., segmented = FALSE, filter = "Sex != 'Sum'", logY = TRUE, na.rm = TRUE, check = TRUE) {
       if (segmented) {
         if (logY) {
-          fname <- here::here(file.path(
-          CodeMap$DATA_PATH, 
-          "PlotData", 
-          "Segmented-logY-BySexTstageSite.Rds"
-        ))
+          fname <- here::here(file.path(PDATA, "Segmented-logY-BySexTstageSite.Rds"))
         } else {
-          fname <- here::here(file.path(
-          CodeMap$DATA_PATH, 
-          "PlotData", 
-          "Segmented-BySexTstageSite.Rds"
-        ))
+          fname <- here::here(file.path(PDATA, "Segmented-BySexTstageSite.Rds"))
         }
       } else {
-        fname <- here::here(file.path(
-          CodeMap$DATA_PATH, 
-          "PlotData", 
-          "AgeAdjusted-BySexTstageSite.Rds"
-        ))
+        fname <- here::here(file.path(PDATA, "AgeAdjusted-BySexTstageSite.Rds"))
       }
       expr <- expression({
-          PlotData <- AgeAdjRate(
-            cases = ImpCases(...),
-            person_year = PersonYear,
-            group = c("DiagYear", "Sex", "Tstage", "AnatomicSite"),
-            margin = "Sex"
-          )[!AnatomicSite %in% c("Other") & !is.na(AnatomicSite) & !is.na(Tstage)]
-          if (!is.null(filter)) {
-            PlotData <- PlotData[eval(parse(text = filter))]
-          }
-          if (segmented) {
-            PlotData <- Segmented(PlotData, c("fitted"), logY = logY)
-          }
-          if (na.rm) PlotData <- na.omit(PlotData)
-          saveRDS(PlotData, fname)
-          PlotData
-        })
+        PlotData <- AgeAdjRate(
+          cases = ImpCases(...),
+          person_year = PersonYear,
+          group = c("DiagYear", "Sex", "Tstage", "AnatomicSite"),
+          margin = "Sex"
+        )[!AnatomicSite %in% c("Other") & !is.na(AnatomicSite) & !is.na(Tstage)]
+        if (!is.null(filter)) {
+          PlotData <- PlotData[eval(parse(text = filter))]
+        }
+        if (segmented) {
+          PlotData <- Segmented(PlotData, c("fitted"), logY = logY)
+        }
+        if (na.rm) PlotData <- na.omit(PlotData)
+        fwrite(PlotData, str_replace(fname, "[rR]ds$", "csv"))
+        saveRDS(PlotData, fname)
+        PlotData
+      })
       if (check) {
         PlotData <- Fn$load_or_run(
           rds_path = fname,
@@ -663,42 +609,31 @@ evalq({
     BySexTstageType <- function(..., segmented = FALSE, filter = "Sex != 'Sum'", logY = TRUE, na.rm = TRUE, check = TRUE) {
       if (segmented) {
         if (logY) {
-          fname <- here::here(file.path(
-          CodeMap$DATA_PATH, 
-          "PlotData", 
-          "Segmented-logY-BySexTstageType.Rds"
-        ))
+          fname <- here::here(file.path(PDATA, "Segmented-logY-BySexTstageType.Rds"))
         } else {
-          fname <- here::here(file.path(
-          CodeMap$DATA_PATH, 
-          "PlotData", 
-          "Segmented-BySexTstageType.Rds"
-        ))
+          fname <- here::here(file.path(PDATA, "Segmented-BySexTstageType.Rds"))
         }
       } else {
-        fname <- here::here(file.path(
-          CodeMap$DATA_PATH, 
-          "PlotData", 
-          "AgeAdjusted-BySexTstageType.Rds"
-        ))
+        fname <- here::here(file.path(PDATA, "AgeAdjusted-BySexTstageType.Rds"))
       }
       expr <- expression({
-          PlotData <- AgeAdjRate(
-            cases = ImpCases(...),
-            person_year = PersonYear,
-            group = c("DiagYear", "Sex", "Tstage", "MelanomaType"),
-            margin = "Sex"
-          )[!MelanomaType %in% c("Other") & !is.na(MelanomaType) & !is.na(Tstage)]
-          if (!is.null(filter)) {
-            PlotData <- PlotData[eval(parse(text = filter))]
-          }
-          if (segmented) {
-            PlotData <- Segmented(PlotData, c("fitted"), logY = logY)
-          }
-          if (na.rm) PlotData <- na.omit(PlotData)
-          saveRDS(PlotData, fname)
-          PlotData
-        })
+        PlotData <- AgeAdjRate(
+          cases = ImpCases(...),
+          person_year = PersonYear,
+          group = c("DiagYear", "Sex", "Tstage", "MelanomaType"),
+          margin = "Sex"
+        )[!MelanomaType %in% c("Other") & !is.na(MelanomaType) & !is.na(Tstage)]
+        if (!is.null(filter)) {
+          PlotData <- PlotData[eval(parse(text = filter))]
+        }
+        if (segmented) {
+          PlotData <- Segmented(PlotData, c("fitted"), logY = logY)
+        }
+        if (na.rm) PlotData <- na.omit(PlotData)
+        fwrite(PlotData, str_replace(fname, "[rR]ds$", "csv"))
+        saveRDS(PlotData, fname)
+        PlotData
+      })
       if (check) {
         PlotData <- Fn$load_or_run(
           rds_path = fname,
@@ -719,46 +654,35 @@ evalq({
     BySexTstageRegion <- function(..., segmented = FALSE, filter = "Sex != 'Sum'", logY = TRUE, na.rm = TRUE, check = TRUE) {
       if (segmented) {
         if (logY) {
-          fname <- here::here(file.path(
-          CodeMap$DATA_PATH, 
-          "PlotData", 
-          "Segmented-logY-BySexTstageRegion.Rds"
-        ))
+          fname <- here::here(file.path(PDATA, "Segmented-logY-BySexTstageRegion.Rds"))
         } else {
-          fname <- here::here(file.path(
-          CodeMap$DATA_PATH, 
-          "PlotData", 
-          "Segmented-BySexTstageRegion.Rds"
-        ))
+          fname <- here::here(file.path(PDATA, "Segmented-BySexTstageRegion.Rds"))
         }
       } else {
-        fname <- here::here(file.path(
-          CodeMap$DATA_PATH, 
-          "PlotData", 
-          "AgeAdjusted-BySexTstageRegion.Rds"
-        ))
+        fname <- here::here(file.path(PDATA, "AgeAdjusted-BySexTstageRegion.Rds"))
       }
       expr <- expression({
-          PlotData <- AgeAdjRate(
-            cases = ImpCases(
-              case_group = c(
-                "DiagYear", "Sex", "AgeGroup5", 
-                "Tstage", "HealthRegion"
-              )),
-            person_year = PersonYear,
-            group = c("DiagYear", "Sex", "Tstage", "HealthRegion"),
-            margin = "Sex"
-          )[!HealthRegion %in% c("Other") & !is.na(HealthRegion) & !is.na(Tstage)]
-          if (!is.null(filter)) {
-            PlotData <- PlotData[eval(parse(text = filter))]
-          }
-          if (segmented) {
-            PlotData <- Segmented(PlotData, c("fitted"), logY = logY)
-          }
-          if (na.rm) PlotData <- na.omit(PlotData)
-          saveRDS(PlotData, fname)
-          PlotData
-        })
+        PlotData <- AgeAdjRate(
+          cases = ImpCases(
+            case_group = c(
+              "DiagYear", "Sex", "AgeGroup5", 
+              "Tstage", "HealthRegion"
+            )),
+          person_year = PersonYear,
+          group = c("DiagYear", "Sex", "Tstage", "HealthRegion"),
+          margin = "Sex"
+        )[!HealthRegion %in% c("Other") & !is.na(HealthRegion) & !is.na(Tstage)]
+        if (!is.null(filter)) {
+          PlotData <- PlotData[eval(parse(text = filter))]
+        }
+        if (segmented) {
+          PlotData <- Segmented(PlotData, c("fitted"), logY = logY)
+        }
+        if (na.rm) PlotData <- na.omit(PlotData)
+        fwrite(PlotData, str_replace(fname, "[rR]ds$", "csv"))
+        saveRDS(PlotData, fname)
+        PlotData
+      })
       if (check) {
         PlotData <- Fn$load_or_run(
           rds_path = fname,
@@ -779,46 +703,35 @@ evalq({
     BySexTstageSeason <- function(..., segmented = FALSE, filter = "Sex != 'Sum'", logY = TRUE, na.rm = TRUE, check = TRUE) {
       if (segmented) {
         if (logY) {
-          fname <- here::here(file.path(
-          CodeMap$DATA_PATH, 
-          "PlotData", 
-          "Segmented-logY-BySexTstageSeason.Rds"
-        ))
+          fname <- here::here(file.path(PDATA, "Segmented-logY-BySexTstageSeason.Rds"))
         } else {
-          fname <- here::here(file.path(
-          CodeMap$DATA_PATH, 
-          "PlotData", 
-          "Segmented-BySexTstageSeason.Rds"
-        ))
+          fname <- here::here(file.path(PDATA, "Segmented-BySexTstageSeason.Rds"))
         }
       } else {
-        fname <- here::here(file.path(
-          CodeMap$DATA_PATH, 
-          "PlotData", 
-          "AgeAdjusted-BySexTstageSeason.Rds"
-        ))
+        fname <- here::here(file.path(PDATA, "AgeAdjusted-BySexTstageSeason.Rds"))
       }
       expr <- expression({
-          PlotData <- AgeAdjRate(
-            cases = ImpCases(
-              case_group = c(
-                "DiagYear", "Sex", "AgeGroup5", 
-                "Tstage", "Season"
-              )),
-            person_year = PersonYear,
-            group = c("DiagYear", "Sex", "Tstage", "Season"),
-            margin = "Sex"
-          )[!Season %in% c("Other") & !is.na(Season) & !is.na(Tstage)]
-          if (!is.null(filter)) {
-            PlotData <- PlotData[eval(parse(text = filter))]
-          }
-          if (segmented) {
-            PlotData <- Segmented(PlotData, c("fitted"), logY = logY)
-          }
-          if (na.rm) PlotData <- na.omit(PlotData)
-          saveRDS(PlotData, fname)
-          PlotData
-        })
+        PlotData <- AgeAdjRate(
+          cases = ImpCases(
+            case_group = c(
+              "DiagYear", "Sex", "AgeGroup5", 
+              "Tstage", "Season"
+            )),
+          person_year = PersonYear,
+          group = c("DiagYear", "Sex", "Tstage", "Season"),
+          margin = "Sex"
+        )[!Season %in% c("Other") & !is.na(Season) & !is.na(Tstage)]
+        if (!is.null(filter)) {
+          PlotData <- PlotData[eval(parse(text = filter))]
+        }
+        if (segmented) {
+          PlotData <- Segmented(PlotData, c("fitted"), logY = logY)
+        }
+        if (na.rm) PlotData <- na.omit(PlotData)
+        fwrite(PlotData, str_replace(fname, "[rR]ds$", "csv"))
+        saveRDS(PlotData, fname)
+        PlotData
+      })
       if (check) {
         PlotData <- Fn$load_or_run(
           rds_path = fname,
@@ -835,12 +748,12 @@ evalq({
   }, AgeAdjusted)
 }, PlotData)
 
-## -- APC Plots------------------------------
+## -- Age Specific Plots ----------------
 evalq({
-  APC <- function(..., BySex = FALSE, Group = NULL, filter = "Age >= 20", check = TRUE) {
+  AgeSpecific <- function(..., BySex = TRUE, Group = NULL, filter = NULL, check = TRUE) {
     attach(Results)
     on.exit(detach(Results))
-        
+    
     fname0 <- ifelse(
       BySex & is.null(Group), "Sex",
       ifelse(
@@ -853,16 +766,74 @@ evalq({
     )
     if (fname0 != "") {
       fname <- here::here(file.path(
-          CodeMap$DATA_PATH, 
-          "PlotData", 
-          paste0(paste("APC-Data", fname0, sep = "-"
+        PDATA,
+        paste0(paste("ASP-Data", fname0, sep = "-"
         ), ".Rds")))
     } else {
+      fname <- here::here(file.path(PDATA, "ASP-Data.Rds"))
+    }
+    expr <- expression({
+      all_group_vars <- c("AgeGroup5")
+      if (!is.null(Group)) all_group_vars <- append(all_group_vars, Group)
+      if (BySex) all_group_vars <- append(all_group_vars, "Sex")
+      
+      asp_data <- ImpCases(all_group_vars) %>% 
+        map(GetIncDataByGroup, PersonYear, all_group_vars) %>%
+        map(tidytable::select, -Imp) %>% 
+        map_df(GetIncRate, .id = "imp") %>% 
+        tidytable::mutate(
+          Imp = if_else(imp == "0", "Complete", "Pooled")
+        )
+      asp_data <- asp_data %>% 
+        .[, .(
+          N = sum(N), 
+          imp = .N, 
+          est = mean(est), 
+          lower = mean(lower), 
+          upper = mean(upper)
+        ), by = setdiff(names(.), c("N", "est", "lower", "upper"))]
+      if (!is.null(Group)) asp_data <- asp_data[!is.na(asp_data[[Group]])]
+      
+      fwrite(asp_data, str_replace(fname, "[rR]ds$", "csv"))
+      saveRDS(asp_data, fname)
+      asp_data
+    })
+    if (check) {
+      plot_data <- Fn$load_or_run(
+        rds_path = fname,
+        expression = expr
+      )
+    } else {
+      plot_data <- eval(expr)
+    }
+    if (!is.null(filter)) plot_data <- plot_data[eval(parse(text = filter))]
+    return(plot_data)
+  }
+}, PlotData)
+
+## -- APC Plots------------------------------
+evalq({
+  APC <- function(..., BySex = FALSE, Group = NULL, filter = "Age >= 20", check = TRUE) {
+    attach(Results)
+    on.exit(detach(Results))
+    
+    fname0 <- ifelse(
+      BySex & is.null(Group), "Sex",
+      ifelse(
+        BySex & !is.null(Group), paste0("Sex-", Group),
+        ifelse(
+          !BySex & !is.null(Group), Group,
+          ""
+        )
+      )
+    )
+    if (fname0 != "") {
       fname <- here::here(file.path(
-          CodeMap$DATA_PATH, 
-          "PlotData", 
-          "APC-Data.Rds"
-        ))
+        PDATA,
+        paste0(paste("APC", fname0, sep = "-"
+        ), ".Rds")))
+    } else {
+      fname <- here::here(file.path(PDATA, "APC.Rds"))
     }
     expr <- expression({
       all_group_vars <- c("DiagYear", "AgeGroup5")
@@ -882,6 +853,7 @@ evalq({
         ), by = setdiff(names(.), c("N", "est", "lower", "upper"))]
       if (!is.null(Group)) apc_data <- apc_data[!is.na(apc_data[[Group]])]
       
+      fwrite(apc_data, str_replace(fname, "[rR]ds$", "csv"))
       saveRDS(apc_data, fname)
       apc_data
     })
@@ -909,44 +881,40 @@ evalq({
     )
     if (fname0 != "") {
       fname <- here::here(file.path(
-          CodeMap$DATA_PATH, 
-          "PlotData", 
-          paste0(paste("APC-AgeSex", fname0, sep = "-"
+        PDATA,
+        paste0(paste("APC-AgeSex", fname0, sep = "-"
         ), ".Rds")))
     } else {
-      fname <- here::here(file.path(
-          CodeMap$DATA_PATH, 
-          "PlotData", 
-          "APC-AgeSex.Rds"
-        ))
+      fname <- here::here(file.path(PDATA, "APC-AgeSex.Rds"))
     }
     expr <- expression({
-        attach(Results)
-        on.exit(detach(Results))
-        
-        all_group_vars <- c("DiagYear", group_var)
-        if (!is.null(row_var)) all_group_vars <- append(all_group_vars, group_var)
-        if (row_var) all_group_vars <- append(all_group_vars, row_var)
-        apc_data <- GetIncDataByGroup(ImpCases(), PersonYear, all_group_vars) %>%
-          Results$APC() %>%
-          GetIncRate()
-        apc_data[, Imp := fifelse(Imp == "0", "Complete", "Pooled")]
-        
-        all_group_vars <- stringr::str_replace(all_group_vars, "DiagYear", "DiagYear")
-        apc_data <- apc_data %>% 
-          .[, .(
-            N = sum(N), 
-            imp = .N, 
-            est = mean(est), 
-            lower = mean(lower), 
-            upper = mean(upper)
-          ), by = c("Imp", all_group_vars, "BirthYear")]
-        
-        if (!is.null(Group)) apc_data <- apc_data[!is.na(apc_data[[Group]])]
-        
-        saveRDS(apc_data, fname)
-        apc_data
-      })
+      attach(Results)
+      on.exit(detach(Results))
+      
+      all_group_vars <- c("DiagYear", group_var)
+      if (!is.null(row_var)) all_group_vars <- append(all_group_vars, group_var)
+      if (row_var) all_group_vars <- append(all_group_vars, row_var)
+      apc_data <- GetIncDataByGroup(ImpCases(), PersonYear, all_group_vars) %>%
+        Results$APC() %>%
+        GetIncRate()
+      apc_data[, Imp := fifelse(Imp == "0", "Complete", "Pooled")]
+      
+      all_group_vars <- stringr::str_replace(all_group_vars, "DiagYear", "DiagYear")
+      apc_data <- apc_data %>% 
+        .[, .(
+          N = sum(N), 
+          imp = .N, 
+          est = mean(est), 
+          lower = mean(lower), 
+          upper = mean(upper)
+        ), by = c("Imp", all_group_vars, "BirthYear")]
+      
+      if (!is.null(Group)) apc_data <- apc_data[!is.na(apc_data[[Group]])]
+      
+      fwrite(apc_data, str_replace(fname, "[rR]ds$", "csv"))
+      saveRDS(apc_data, fname)
+      apc_data
+    })
     if (check) {
       plot_data <- Fn$load_or_run(
         rds_path = fname,
@@ -967,29 +935,26 @@ evalq({
   evalq({
     Fit <- function(..., Param = "ACP", Group = NULL, Facet = NULL, 
                     ShowAge = TRUE, filter = NULL, na.rm = TRUE, check = TRUE) {
-      fname <- here::here(file.path(
-          CodeMap$DATA_PATH, 
-          "PlotData", 
-          "APC-Model-Fit.Rds"
-        ))
+      fname <- here::here(file.path(PDATA, "APC-Model-Fit.Rds"))
       expr <- expression({
-          attach(Results)
-          on.exit(detach(Results))
-          
-          group_vars <- c(Group, Facet)
-          all_group_vars <- append(c("DiagYear", "AgeGroup5"), group_vars)
-          
-          apc_data <- GetIncDataByGroup(Cases, PersonYear, all_group_vars) %>%
-            Results$APC() %>%
-            ModelAPC(Param = Param)
-          apc_data <- apc_data[Imp == "Pooled"]
-          
-          if (!is.null(Group)) apc_data <- apc_data[!is.na(get(Group))]
-          if (!is.null(Facet)) apc_data <- apc_data[!is.na(get(Facet))]
-          if (!is.null(filter)) apc_data <- apc_data[eval(parse(text = filter))]
-          if (na.rm) apc_data <- na.omit(apc_data)
-          saveRDS(apc_data, fname)
-        })
+        attach(Results)
+        on.exit(detach(Results))
+        
+        group_vars <- c(Group, Facet)
+        all_group_vars <- append(c("DiagYear", "AgeGroup5"), group_vars)
+        
+        apc_data <- GetIncDataByGroup(Cases, PersonYear, all_group_vars) %>%
+          Results$APC() %>%
+          ModelAPC(Param = Param)
+        apc_data <- apc_data[Imp == "Pooled"]
+        
+        if (!is.null(Group)) apc_data <- apc_data[!is.na(get(Group))]
+        if (!is.null(Facet)) apc_data <- apc_data[!is.na(get(Facet))]
+        if (!is.null(filter)) apc_data <- apc_data[eval(parse(text = filter))]
+        if (na.rm) apc_data <- na.omit(apc_data)
+        fwrite(apc_data, str_replace(fname, "[rR]ds$", "csv"))
+        saveRDS(apc_data, fname)
+      })
       if (check) {
         apc_data <- Fn$load_or_run(
           rds_path = fname,
@@ -1005,34 +970,31 @@ evalq({
   ## -- Effect plot using ggplot2 ----
   evalq({
     Effect <- function(..., Param = "ACP", Group = NULL, Facet = NULL, ShowAge = TRUE, filter = NULL, na.rm = TRUE, check = TRUE) {
-      fname <- here::here(file.path(
-          CodeMap$DATA_PATH, 
-          "PlotData", 
-          "APC-Model-Effect.Rds"
-        ))
+      fname <- here::here(file.path(PDATA, "APC-Model-Effect.Rds"))
       expr <- expression({
-          attach(Results)
-          on.exit(detach(Results))
-          
-          group_vars <- c(Group, Facet)
-          all_group_vars <- append(c("DiagYear", "AgeGroup5"), group_vars)
-          apc_data <- GetIncDataByGroup(Cases, PersonYear, all_group_vars) %>%
-            Results$APC() %>%
-            ModelAPC(Param = Param)
-          
-          if ("Imp" %in% names(apc_data)) group_vars <- append("Imp", group_vars)
-          
-          PlotData <- apc_data[, map_df(eff, list), by = group_vars]
-          PlotData <- PlotData[Imp == "Pooled"]
-          
-          if (!ShowAge) PlotData <- PlotData[EffectType != "Age"]
-          if (!is.null(Group)) PlotData <- PlotData[!is.na(get(Group))]
-          if (!is.null(Facet)) PlotData <- PlotData[!is.na(get(Facet))]
-          if (!is.null(filter)) PlotData <- PlotData[eval(parse(text = filter))]
-          if (na.rm) PlotData <- na.omit(PlotData)
-          saveRDS(PlotData, fname)
-          PlotData
-        })
+        attach(Results)
+        on.exit(detach(Results))
+        
+        group_vars <- c(Group, Facet)
+        all_group_vars <- append(c("DiagYear", "AgeGroup5"), group_vars)
+        apc_data <- GetIncDataByGroup(Cases, PersonYear, all_group_vars) %>%
+          Results$APC() %>%
+          ModelAPC(Param = Param)
+        
+        if ("Imp" %in% names(apc_data)) group_vars <- append("Imp", group_vars)
+        
+        PlotData <- apc_data[, map_df(eff, list), by = group_vars]
+        PlotData <- PlotData[Imp == "Pooled"]
+        
+        if (!ShowAge) PlotData <- PlotData[EffectType != "Age"]
+        if (!is.null(Group)) PlotData <- PlotData[!is.na(get(Group))]
+        if (!is.null(Facet)) PlotData <- PlotData[!is.na(get(Facet))]
+        if (!is.null(filter)) PlotData <- PlotData[eval(parse(text = filter))]
+        if (na.rm) PlotData <- na.omit(PlotData)
+        fwrite(PlotData, str_replace(fname, "[rR]ds$", "csv"))
+        saveRDS(PlotData, fname)
+        PlotData
+      })
       if (check) {
         PlotData <- Fn$load_or_run(
           rds_path = fname,
@@ -1050,50 +1012,58 @@ evalq({
 ## -- Missing Breslow and Ulceration ------------------------------
 evalq({
   MissingTrend <- function(data = Results$Data(), by = NULL, filter = NULL) {
-    Data <- data
-    
-    formula <- reformulate(union(c("DiagYear", "Sex", by), by))
-    
-    sex_lbl <- xtabs(~Sex, data = Data) %>% addmargins()
-    dimnames(sex_lbl) <- map(dimnames(sex_lbl), str_replace, "Sum", "Overall")
-    sex_lbl <- Fn$label_vec(sex_lbl)
-    
-    
-    if (!is.null(by)) {
-      if (by %in% c("DiagYear", "Sex")) by <- NULL
-    }
-    
-    if (!is.null(by)) {
-      by_lbl <- xtabs(reformulate(by), data = data) %>% addmargins()
-      dimnames(by_lbl) <- map(dimnames(by_lbl), str_replace, "Sum", "Overall")
-      by_lbl <- Fn$label_vec(by_lbl)
-    } else {
-      by_lbl <- NULL
-    }
-    
-    PlotData <- rbindlist(list(
-      `Tumour thickness` = as.data.table(
-        xtabs(formula, data = Data, subset = is.na(Tstage)) %>%
-          addmargins(2) / xtabs(formula, data = Data) %>% addmargins(2)
-      ),
-      Ulceration = as.data.table(
-        xtabs(formula, data = Data, subset = is.na(Ulceration)) %>%
-          addmargins(2) / xtabs(formula, data = Data) %>% addmargins(2)
-      )
-    ),
-    idcol = "variable"
+    fname <- here::here(PDATA, "MissingTrend-Overall.rds")
+    PlotData <- Fn$load_or_run(
+      rds_path = fname,
+      expression = expression({
+        Data <- data
+        
+        formula <- reformulate(union(c("DiagYear", "Sex", by), by))
+        
+        sex_lbl <- xtabs(~Sex, data = Data) %>% addmargins()
+        dimnames(sex_lbl) <- map(dimnames(sex_lbl), str_replace, "Sum", "Overall")
+        sex_lbl <- Fn$label_vec(sex_lbl)
+        
+        
+        if (!is.null(by)) {
+          if (by %in% c("DiagYear", "Sex")) by <- NULL
+        }
+        
+        if (!is.null(by)) {
+          by_lbl <- xtabs(reformulate(by), data = data) %>% addmargins()
+          dimnames(by_lbl) <- map(dimnames(by_lbl), str_replace, "Sum", "Overall")
+          by_lbl <- Fn$label_vec(by_lbl)
+        } else {
+          by_lbl <- NULL
+        }
+        
+        PlotData <- rbindlist(list(
+          `Tumour thickness` = as.data.table(
+            xtabs(formula, data = Data, subset = is.na(Tstage)) %>%
+              addmargins(2) / xtabs(formula, data = Data) %>% addmargins(2)
+          ),
+          Ulceration = as.data.table(
+            xtabs(formula, data = Data, subset = is.na(Ulceration)) %>%
+              addmargins(2) / xtabs(formula, data = Data) %>% addmargins(2)
+          )
+        ),
+        idcol = "variable"
+        )
+        PlotData <- PlotData %>% 
+          setnames("N", "Prop") %>%
+          .[, DiagYear := as.numeric(DiagYear)] %>%
+          .[, Sex := CodeMap$factor_map(Sex, "Sex") %>%
+              forcats::fct_na_value_to_level("Overall")]
+        if (!is.null(filter)) PlotData <- PlotData[eval(parse(text = filter))]
+        
+        attr(PlotData, "sex_label") <- sex_lbl
+        attr(PlotData, "by_label") <- by_lbl
+        
+        fwrite(PlotData, str_replace(fname, "[rR]ds$", "csv"))
+        saveRDS(PlotData, fname)
+        return(PlotData[])
+      })
     )
-    PlotData <- PlotData %>% 
-      setnames("N", "Prop") %>%
-      .[, DiagYear := as.numeric(DiagYear)] %>%
-      .[, Sex := CodeMap$factor_map(Sex, "Sex") %>%
-          forcats::fct_na_value_to_level("Overall")]
-    if (!is.null(filter)) PlotData <- PlotData[eval(parse(text = filter))]
-    
-    attr(PlotData, "sex_label") <- sex_lbl
-    attr(PlotData, "by_label") <- by_lbl
-    
-    return(PlotData[])
   }
 }, PlotData)
 
@@ -1120,3 +1090,22 @@ evalq({
   }
 }, PlotData)
 
+## -- Count data for plotting ----------------
+evalq({
+  PropData <- function() {
+    fname <- here::here(PDATA, "Counts.rds")
+    PlotData <- Fn$load_or_run(
+      rds_path = fname,
+      expression = expression({
+        data <- Results$ImpCases() %>% 
+          rbindlist(
+            use.names = TRUE,
+            idcol = "Imp"
+          )
+        
+        fwrite(data, str_replace(fname, "[rR]ds$", "csv"))
+        saveRDS(data, fname) 
+      })
+    )
+  }
+}, PlotData)

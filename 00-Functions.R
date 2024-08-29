@@ -61,18 +61,18 @@ evalq({
   }
 }, Fn) # Find the difference between two dates in months
 evalq({
-   diff_month2 <- function(date1, date2, unit = c("days", "weeks", "months", "years")) {
-     require(lubridate)
-     unit <- match.arg(unit)    
-     ufn <- switch (
-       unit,
-       days = ddays(1),
-       weeks = dweeks(1),
-       months = dmonths(1),
-       years = dyears(1)
-     )
-     (date1 - date2) / ufn
-   }
+  diff_month2 <- function(date1, date2, unit = c("days", "weeks", "months", "years")) {
+    require(lubridate)
+    unit <- match.arg(unit)    
+    ufn <- switch(
+      unit,
+      days = ddays(1),
+      weeks = dweeks(1),
+      months = dmonths(1),
+      years = dyears(1)
+    )
+    (date1 - date2) / ufn
+  }
 }, Fn) # Find the difference between two dates in months using lubridate (more exact)
 evalq({
   format_percent <- function(x, dec = 2) {
@@ -226,10 +226,10 @@ evalq({
       tbls <- lapply(unique(data[[group[1]]]), function(gvar) {
         if (is.null(digits)) {
           digits <- list(
-              all_categorical() ~ c(0, 1), 
-              any_of("Age") ~ c(0, 0),
-              any_of(c("BreslowThickness", "Thickness")) ~ c(1, 1)
-            )
+            all_categorical() ~ c(0, 1), 
+            any_of("Age") ~ c(0, 0),
+            any_of(c("BreslowThickness", "Thickness")) ~ c(1, 1)
+          )
         }
         tbl <- data[data[[group[1]]] == gvar, c(..vars, ..group[-1])] %>%
           tbl_summary(
@@ -237,7 +237,7 @@ evalq({
             label = as.list(variables),
             digits = digits,
             missing_text = "Unspecified",
-	    ...
+            ...
           ) %>% modify_header(
             update = all_stat_cols() ~ "**{level}**<br>n={format(n, big.mark = ',')}"
           )
@@ -693,8 +693,8 @@ evalq({
         fit_mat <- do.call(cbind, fit)
         ci_mat <- fit_mat %*% Epi::ci.mat()
         colnames(ci_mat) <- c("fit", "fit_lwr", "fit_upr")
-        fit_df <- cbind(fit_mat, ci_mat[, -1]) %>% 
-          as.data.table(keep.rownames = "Year") %>%
+        fit_df <- cbind(fit_mat, ci_mat[, -1]) %>%
+          as.data.table() %>%
           .[, c(year_var) := as.numeric(mdl$model[[year_var]])]
       } else {
         fit <- predict(mdl, se.fit = TRUE)[1:2]
@@ -703,7 +703,7 @@ evalq({
         ci_mat <- fit_mat %*% Epi::ci.mat()
         colnames(ci_mat) <- c("fit", "fit_lwr", "fit_upr")
         fit_df <- cbind(fit_mat, ci_mat[, -1]) %>% 
-          as.data.table(keep.rownames = "Year") %>%
+          as.data.table() %>%
           .[, c(year_var) := as.numeric(mdl$model[[year_var]])]
       }
       out <- merge.data.table(dta, fit_df, by = year_var)
@@ -922,45 +922,47 @@ evalq({
 }, Fn)
 ## -- Survival functions ---------------------------------------
 evalq({
-    prepare_surv_data <- function(data, cause_specific = FALSE, remove_date = TRUE, hide_cause = TRUE, group_vars = c("Tstage")) {
-      if (!is.data.frame(data)) {
-        data <- rbindlist(data)
-      } else {
-        data[, Imp := 0]
-      }
-      dta <- data[, .(
-        Imp = Imp,
-        diag_date = DiagDate,
-        status_date = EndDate,
-        time = EndDate - DiagDate,
-        thickness = Thickness,
-        age = Age,
-        status = fifelse(grepl("[dD]ead", Status), 1, 0),
-        cause = fcase(
-          grepl("[Aa]live", Status), "Alive",
-          grepl("[Dd]ead", Status) & grepl("C43|172", DeathCause), "Melanoma",
-          grepl("[Dd]ead", Status) & !grepl("C43|172", DeathCause), "Other",
-          grepl("|[Ll]ost", Status), "Lost",
-          default = NA_character_
-        ),
-        sex = as.factor(fifelse(Sex == "Men", "male", "female")),
-        .SD[, group_vars, with = FALSE]
-      )][, id := 1:.N, by = .(Imp)]
-      if (cause_specific) {
-        dta[, status := fifelse(cause == "Melanoma", 1, 0)]
-      }
-      if (hide_cause) {
-        dta[, cause := NULL]
-      }
-      if (remove_date) {
-        dta[, diag_year := year(diag_date)]
-        dta[, status_year := year(status_date)]
-        dta[, c("diag_date", "status_date") := NULL]
-      }
-      setnames(dta, Fn$camel2snake(names(dta)))
-      return(dta[])
+  prepare_surv_data <- function(data, cause_specific = FALSE, remove_date = TRUE, hide_cause = TRUE, other_vars = c("Tstage")) {
+    if (!is.data.frame(data)) {
+      data <- rbindlist(data)
+    } else {
+      data[, Imp := 0]
     }
-  }, Fn) # Prepare data for survival
+    dta <- data[, .(
+      Imp = Imp,
+      diag_date = DiagDate,
+      status_date = EndDate,
+      time = EndDate - DiagDate,
+      thickness = Thickness,
+      age = Age,
+      status = fifelse(grepl("[dD]ead", Status), 1, 0),
+      cause = fcase(
+        grepl("[Aa]live", Status), "Alive",
+        grepl("[Dd]ead", Status) & grepl("C43|172", DeathCause), "Melanoma",
+        grepl("[Dd]ead", Status) & !grepl("C43|172", DeathCause), "Other",
+        grepl("|[Ll]ost", Status), "Lost",
+        default = NA_character_
+      ),
+      sex = as.factor(fifelse(Sex == "Men", "male", "female")),
+      .SD[, other_vars, with = FALSE]
+    )][, id := 1:.N, by = .(Imp)]
+    
+    if (cause_specific) {
+      dta[, status := fifelse(cause == "Melanoma", 1, 0)]
+    }
+    if (hide_cause) {
+      dta[, cause := NULL]
+    }
+    if (remove_date) {
+      dta[, diag_year := year(diag_date)]
+      dta[, status_year := year(status_date)]
+      dta[, c("diag_date", "status_date") := NULL]
+    }
+    setnames(dta, Fn$camel2snake(names(dta)))
+    return(dta[])
+  }
+}, Fn) # Prepare data for survival
+
 evalq({
   #' To tidy up survfit object
   #'
@@ -971,7 +973,7 @@ evalq({
   #' @return A tibble.
   #' @keywords survival
   #' @export
-
+  
   tidy_surv <- function(survfit, expand = FALSE) {
     if (!expand) {
       output <-
@@ -984,7 +986,7 @@ evalq({
           n.risk,
           n.event,
           n.censor,
-
+          
           # actuarial estimates
           surv = cumprod(1 - n.event / n.risk), # =1-(cml.event/max(n.risk))
           cml.event = cumsum(n.event),
@@ -994,11 +996,11 @@ evalq({
           se.haz = (haz * sqrt(1 - (haz * int / 2)^2)) / sqrt(n.event),
           sumerand = n.event / ((n.risk - n.event) * n.risk),
           se.surv = surv * sqrt(cumsum(sumerand)),
-
+          
           # log(-log()) scale
           llsurv = log(-log(surv)),
           se.llsurv = sqrt((1 / log(surv)^2) * cumsum(sumerand)),
-
+          
           # kaplan-meier / nelson-aalen estimators
           haz_km = n.event / (n.risk * int), # =-(surv-lag(surv))/lag(surv)
           cml.haz_km = cumsum(haz_km), # =cumsum(haz_km)
@@ -1031,16 +1033,16 @@ evalq({
           se.llsurv = sqrt((1 / log(surv)^2) * cumsum(sumerand)),
           # LL.surv=surv^(exp(1.96*se.llsurv)),
           # UL.surv=surv^(exp(-1.96*se.llsurv)),
-
+          
           # kaplan-meier / nelson-aalen estimators
           haz_km = n.event / (n.risk), # =-(surv-lag(surv))/lag(surv)
           cml.haz_km = cumsum(n.event / n.risk), # =cumsum(haz_km)
           se.haz_km = haz_km * sqrt((n.risk - n.event) / (n.risk * n.event))#,
         )
     }
-
+    
     return(output)
-    }
+  }
 }, Fn) # Tidy survial fit (github: wjchulme/BCIS-PCI-relative-survival)
 evalq({
   #' To tidy survfit object from [relsurv::rs.surv()]
@@ -1051,12 +1053,12 @@ evalq({
   #' @return A tibble.
   #' @keywords survival, relative survival
   #' @export
-
+  
   # clean-up and add variables to output from rs.surv model object
   # returns tibble
   tidy_rsurv <- function(rsurvfit) {
     se.fac <- sqrt(qchisq(0.95, 1))
-
+    
     tidied <- rsurvfit %>% tidy()
     setDT(tidied)
     
@@ -1067,7 +1069,7 @@ evalq({
     )[, .(time, leadtime = shift(time, 1, type = "lead"))]
     intforevents[, int := leadtime - time]
     intforevents[, lagint := shift(int)]
-
+    
     out <- rbind(
       list(
         time = 0,
@@ -1080,7 +1082,7 @@ evalq({
       tidied,
       fill = TRUE
     )
-
+    
     out <- out %>% merge(intforevents, all.y = TRUE, by = "time")
     
     out <- out %>%
@@ -1101,16 +1103,16 @@ evalq({
       .[, cml.event := cumsum(n.event)] %>%
       .[, cml.censor := cumsum(n.censor)] %>%
       .[, haz := fifelse(
-          n.event == 0, NA, 
-          n.event / ((n.risk - (n.censor / 2) - (n.event / 2)) * int)
+        n.event == 0, NA, 
+        n.event / ((n.risk - (n.censor / 2) - (n.event / 2)) * int)
       )] # :=(cml.haz-lag(cml.haz))/int
-      
+    
     out <- out %>% 
       .[, se.haz := (haz * sqrt(1 - (haz * int / 2)^2)) / sqrt(n.event)] %>%
       .[, surv := cumprod(1 - n.event / n.risk)] %>%
       .[, se.surv := surv * sqrt(cumsum(sumerand))] # Greenwood's formula
-
-      # log(-log) scale to get standard errors for CIs
+    
+    # log(-log) scale to get standard errors for CIs
     out <- out %>%
       .[, llsurv := log(-log(surv))] %>%
       .[, se.llsurv := sqrt((1 / log(surv)^2) * cumsum(sumerand))] %>%
@@ -1119,46 +1121,46 @@ evalq({
       .[, cml.haz := -log(surv)] %>% # =cumsum(haz)
       .[, cml.haz.ll := -log(surv.ul)] %>%
       .[, cml.haz.ul := -log(surv.ll)]
-
-      # kaplan-meier / nelson-aalen estimators
+    
+    # kaplan-meier / nelson-aalen estimators
     out <- out %>%
       .[, haz_km := n.event / (n.risk * int)] %>% # =-(surv-lag(surv))/lag(surv)
       .[, cml.haz_km := cumsum(ifelse(is.na(haz_km), 0, haz_km))] %>%
       .[, se.haz_km := haz_km * sqrt((n.risk - n.event) / (n.risk * n.event))]
-
-      # relative survival
+    
+    # relative survival
     out <- out %>%
       .[, rel.surv := estimate] %>%
       .[, se.rel.surv := std.error]
-
-      # expected survival
+    
+    # expected survival
     out <- out %>%
       .[, exp.surv := surv / rel.surv] %>% # retrieve expected survival by inverting relative survival estimate
       .[, exp.cml.haz := -log(exp.surv)] %>% # =(cml.haz-cml.exs.haz)
       .[, exp.haz := (exp.cml.haz - shift(exp.cml.haz, n = 1, type = "lag")) / 
           shift(int, n = 1, type = "lag")]
-
-      # conf intervals all based on on standard error of log(-log) of surv - ie, assume exp.haz is known without error
+    
+    # conf intervals all based on on standard error of log(-log) of surv - ie, assume exp.haz is known without error
     out <- out %>%
       .[, rel.surv.ll := surv.ll / exp.surv] %>%
       .[, rel.surv.ul := surv.ul / exp.surv]
-
-      # cumulative excess hazard
+    
+    # cumulative excess hazard
     out <- out %>%
       .[, cml.exs.haz := -log(rel.surv)] %>% # cumulative excess hazard
       .[, cml.exs.haz.ll := -log(rel.surv.ul)] %>%
       .[, cml.exs.haz.ul := -log(rel.surv.ll)]
-
-        # hazard ratio
+    
+    # hazard ratio
     out[, rat.haz := haz / exp.haz]
-
-        # transformed survival for testing relative survival differences using log-rank test:
-        # these produce very similar CIs so may as well ignore
-        # rel.llsurv = log(-log(rel.surv)),
-        # se.rel.llsurv = sqrt( (1/log(rel.surv)^2)* cumsum(sumerand) ),
-        # rel.surv.ll = rel.surv^(exp( se.fac*se.rel.llsurv)),
-        # rel.surv.ul = rel.surv^(exp(-se.fac*se.rel.llsurv)),
-
+    
+    # transformed survival for testing relative survival differences using log-rank test:
+    # these produce very similar CIs so may as well ignore
+    # rel.llsurv = log(-log(rel.surv)),
+    # se.rel.llsurv = sqrt( (1/log(rel.surv)^2)* cumsum(sumerand) ),
+    # rel.surv.ll = rel.surv^(exp( se.fac*se.rel.llsurv)),
+    # rel.surv.ul = rel.surv^(exp(-se.fac*se.rel.llsurv)),
+    
     return(out[])
   }
 }, Fn) # Tidy relative survial fit (github: wjchulme/BCIS-PCI-relative-survival)
@@ -1173,7 +1175,7 @@ evalq({
     extra_label = TRUE,
     row_var = NULL, 
     col_var = NULL, 
-    se = TRUE, 
+    se = FALSE, 
     lrow = 1, 
     log = FALSE, 
     subset = NULL, ... 
@@ -1183,6 +1185,10 @@ evalq({
     data[, Size := if (!is.null(size_var)) data[[size_var]] else 1]
     group <- do.call(interaction, data[, ..group_var])
     data[, Group := stringr::str_replace(group, "-", "\U2013")]
+    
+    if (!is.null(subset)) {
+      data <- data[eval(parse(text = subset))]
+    }
     
     if (length(group_var) == 1 & "Tstage" %in% group_var) {
       data[, Group := forcats::fct_relabel(Group, CodeMap$get_Tstage_label)]
@@ -1202,44 +1208,28 @@ evalq({
     plot_caption <- "Note: Transparent: complete cases, Opaque: after multiple imputation"
     if (extra_label) {
       row_lbl <- col_lbl <- NULL
-      .subset <- ifelse("Case" %in% names(data), "Case == 'All Cases'", "")
-      summary_df <- data[Imp != "Complete"]
-      if (!is.null(subset)) {
-        summary_df <- summary_df[eval(parse(text = subset))]
-      }
-      if (.subset != "") {
-        summary_df <- summary_df[eval(parse(text = .subset))]
-      }
-      sum_var <- c()
-      if (row_var != ".") sum_var <- append(sum_var, row_var)
-      if (col_var != ".") sum_var <- append(sum_var, col_var)
-      sum_expr <- reformulate(sum_var, response = "N / imp")
-      
-      summary_tbl <- summary_df[, xtabs(
-        sum_expr, data = .SD, drop.unused.levels = TRUE
-      )] %>% round() %>% addmargins()
-
-      if (length(dim(summary_tbl)) > 1) {
-        names(dimnames(summary_tbl)) <- sum_var
-        if (row_var != ".") {
-          append(dimnames(summary_tbl), list("." = NULL))
-          row_lbl <- first(summary_tbl[, "Sum"], -1) %>% 
-            Fn$tbl2vec() %>% 
-            Fn$label_vec()
-        }
-        if (col_var != ".") {
-          col_lbl <- first(summary_tbl["Sum", ], -1) %>% 
-            Fn$tbl2vec() %>% 
-            Fn$label_vec()
-        }
-      } else {
-        lbl <- first(summary_tbl, -1) %>%
-          Fn$tbl2vec() %>%
+      if (row_var != ".") {
+        .subset <- ifelse("Case" %in% names(data), "Sex != 'Overall'", "") 
+        row_lbl <- data[
+          Imp != "Complete", 
+          xtabs(N / imp ~ get(row_var), data = .SD, 
+                subset = eval(parse(text = .subset)))
+        ] %>% 
+          round() %>% 
+          Fn$tbl2vec() %>% 
           Fn$label_vec()
-        if (row_var != ".") row_lbl <- lbl
-        if (col_var != ".") col_lbl <- lbl
       }
-      
+      if (col_var != ".") {
+        .subset <- ifelse("Case" %in% names(data), "Case == 'All Cases'", "")
+        col_lbl <- data[
+          Imp != "Complete", 
+          xtabs(N / imp ~ get(col_var), data = .SD,
+                subset = eval(parse(text = .subset)))
+        ] %>% 
+          round() %>% 
+          Fn$tbl2vec() %>% 
+          Fn$label_vec()
+      }
       facet_label <- labeller(.rows = row_lbl, .cols = col_lbl)
       plot_caption <- glue::glue(
         plot_caption, "\n",
@@ -1247,10 +1237,6 @@ evalq({
         "over {data[Imp == 'Pooled', unique(imp)]} imputed datasets",
         sep = " "
       )
-    }
-    
-    if (!is.null(subset)) {
-      data <- data[eval(parse(text = subset))]
     }
     
     plot_frame <- expression({
@@ -2095,3 +2081,41 @@ evalq({
       ) 
   }
 }, Fn) # function to theme gt_table
+## -- Exclusion inclusion table ----------------
+#| This function check the rows in datasets in a list
+#| and return table with differences in the observation
+evalq({
+  get_exclusion_inclusion <- function(df_list) {
+    require(data.table)
+    
+    out <- tidytable(
+      Step = names(df_list),
+      Description = map_chr(df_list, attr, "Comment"),
+      Patients_Included = map_int(df_list, ~.x[, uniqueN(PID)]),
+      Cases_Included = map_int(df_list, ~.x[, uniqueN(SID)])
+    ) %>% mutate(
+      Patients_Excluded = shift(Patients_Included) - Patients_Included,
+      Cases_Excluded = shift(Cases_Included) - Cases_Included
+    ) %>% relocate(
+      Step, Description,
+      starts_with("Patients"),
+      starts_with("Cases")
+    )
+    
+    gt_table <- function(x) {
+      gt::gt(x) %>% 
+        gt::fmt_markdown(columns = "Description") %>% 
+        gt::opt_vertical_padding(0.5) %>% 
+        gt::sub_missing() %>% 
+        gt::tab_spanner_delim("_") %>% 
+        gt::tab_options(
+          table.font.size = "10pt",
+          column_labels.font.weight = "bold",
+        )
+    }
+    attr(out, "gt_table") <- gt_table
+    # print(attr(out, "gt_table")(out))
+    
+    return(out)
+  }
+}, envir = Fn)

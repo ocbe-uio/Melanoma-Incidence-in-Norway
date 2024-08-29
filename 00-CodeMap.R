@@ -8,7 +8,7 @@ evalq({
   )
   DATA_PATH <- ifelse(
     .Platform$OS.type == "windows", 
-    "N:\\durable\\shared\\dataset", 
+    Sys.getenv("Data"), 
     file.path(BASE_PATH, "Data")
   )
   var_class <- function(key, value) {
@@ -52,12 +52,12 @@ evalq({
     )
     ord_fct <- list(
       "AJCC" = c("I", "II", "III", "IV"),
-      "Tstage0" = c(
+      "pTstage" = c(
         "is", "X", "0", "1", "1a", "1b", "2", "2a", "2b",
         "3", "3a", "3b", "4", "4a", "4b"
       ),
-      "Nstage" = c("X", "0", "1", "1b", "2", "2a", "2b", "2c", "3"),
-      "Mstage" = c("X", "0", "1", "1a", "1b", "1c"),
+      "pNstage" = c("X", "0", "1", "1b", "2", "2a", "2b", "2c", "3"),
+      "pMstage" = c("X", "0", "1", "1a", "1b", "1c"),
       "AgeGroup" = c("<20", "20-39", "40-59", "60-84", "85+"),
       "AgeGroup5" = c(
         "0-4", "5-9", "10-14", "15-19", "20-24", "25-29",
@@ -557,34 +557,30 @@ evalq({
       default = NA_character_
     )
   } # Health Region
-  age_map <- function(age, from = c("numeric", "5years")) {
+  age_map <- function(age, breaks = c(0, seq(20, 60, 20), 85, Inf), from = c("numeric", "5years")) {
     if (missing(age)) {
       message("Argument required:\t", appendLF = FALSE)
       return(NULL)
     }
     from <- match.arg(from)
-    if (from == "numeric") {
-      return(
-        fcase(
-          age %between% c(85, Inf), "85+",
-          age %between% c(60, 84), "60-84",
-          age %between% c(40, 59), "40-59",
-          age %between% c(20, 39), "20-39",
-          age %between% c(0, 19), "<20",
-          default = NA_character_
-        )
-      )
-    }
+    
     if (from == "5years") {
-      return(fcase(
-        age == "85+", "85+",
-        age %in% c("60-64", "65-69", "70-74", "75-79", "80-84"), "60-84",
-        age %in% c("40-44", "45-49", "50-54", "55-59"), "40-59",
-        age %in% c("20-24", "25-29", "30-34", "35-39"), "20-39",
-        age %in% c("0-4", "5-9", "10-14", "15-19"), "<20",
-        default = NA_character_
-      ))
+      age <- as.numeric(gsub("(\\d+)[-+].*", "\\1", age))
     }
+    age_lbl <- glue::glue("<{breaks[2]}")
+    age_lbl <- append(age_lbl, paste(
+      breaks[2:(length(breaks) - 1)], 
+      breaks[3:(length(breaks) - 1)] - 1, 
+      sep = "-"
+    ))
+    age_lbl[length(age_lbl)] <- gsub("(\\d+)-.*", "\\1+", age_lbl[length(age_lbl)])
+    age_cat <- cut.default(
+      age, breaks = breaks, 
+      include.lowest = TRUE, 
+      right = FALSE,
+      labels = age_lbl
+    )
+    return(age_cat)
   } # Age
   age_map2 <- function(age = NULL, idx = NULL, step = 5) {
     if (is.null(age) & is.null(idx)) {
@@ -745,10 +741,10 @@ evalq({
       return(NULL)
     }
     fcase(
-      Breslow <= 1.0, "T1",
-      Breslow > 1.0 & Breslow <= 2.0, "T2",
-      Breslow > 2.0 & Breslow <= 4.0, "T3",
-      Breslow > 4.0, "T4",
+      round(Breslow, 4) <= 1.0, "T1",
+      round(Breslow, 4) > 1.0 & round(Breslow, 4) <= 2.0, "T2",
+      round(Breslow, 4) > 2.0 & round(Breslow, 4) <= 4.0, "T3",
+      round(Breslow, 4) > 4.0, "T4",
       default = NA_character_
     )
   }
@@ -758,12 +754,12 @@ evalq({
       return(NULL)
     }
     fcase(
-      Breslow <= 0.5, "[0,0.5]",
-      Breslow > 0.5 & Breslow <= 0.8, "(0.5,0.8]",
-      Breslow > 0.8 & Breslow <= 1.0, "(0.8,1]",
-      Breslow > 1.0 & Breslow <= 2.0, "T2",
-      Breslow > 2.0 & Breslow <= 4.0, "T3",
-      Breslow > 4.0, "T4",
+      round(Breslow, 4) <= 0.5, "[0,0.5]",
+      round(Breslow, 4) > 0.5 & round(Breslow, 4) <= 0.8, "(0.5,0.8]",
+      round(Breslow, 4) > 0.8 & round(Breslow, 4) <= 1.0, "(0.8,1]",
+      round(Breslow, 4) > 1.0 & round(Breslow, 4) <= 2.0, "T2",
+      round(Breslow, 4) > 2.0 & round(Breslow, 4) <= 4.0, "T3",
+      round(Breslow, 4) > 4.0, "T4",
       default = NA_character_
     )
   }

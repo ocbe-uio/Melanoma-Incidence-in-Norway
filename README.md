@@ -6,4 +6,5 @@ Most script files depend on two main files `00-CodeMap.R` and `00-Functions.R`. 
 
 The code also depends on data and the correct path for data and script to run the complete analysis.
 
-[^1]: 1. Rimal R, Robsahm TE, Green AC, Ghiasvand R, Rueegg CS, Bassarova A, et al. Trends in Invasive Melanoma Thickness in Norway, 1983–2019. Acta Dermato-Venereologica 2024; 104: adv26110–adv26110.
+[^1]: Rimal, R., Robsahm, T.E., Green, A.C., Ghiasvand, R., Rueegg, C.S., Bassarova, A., Gjersvik, P., Weiderpass, E., Aalen, O.O., Møller, B., Perrier, F., Veierød, M.B., 2024. Trends in Invasive Melanoma Thickness in Norway, 1983–2019. Acta Dermato-Venereologica 104, adv26110–adv26110. https://doi.org/10.2340/actadv.v104.26110
+
